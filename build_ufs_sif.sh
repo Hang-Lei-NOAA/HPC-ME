@@ -1,9 +1,13 @@
 #!/bin/bash
 # Build the UFS HPC-ME Apptainer SIF on Ursa (or any Slurm/Apptainer HPC system).
 #
-# Usage:
-#   Direct:  bash build_ufs_sif.sh
-#   Slurm:   sbatch build_ufs_sif.sh
+# Compute nodes on Ursa have no outbound internet. Run this two-step process:
+#
+# Step 1 — on a LOGIN node (has internet), pull the base image:
+#   bash build_ufs_sif.sh --pull-base
+#
+# Step 2 — submit the Spack build to a COMPUTE node:
+#   cd /path/to/HPC-ME && sbatch build_ufs_sif.sh
 #
 #SBATCH --job-name=build-ufs-sif
 #SBATCH --partition=u1-compute
@@ -14,6 +18,22 @@
 #SBATCH --error=build_ufs_sif_%j.log
 
 set -euo pipefail
+
+# -----------------------------------------------------------------------
+# --pull-base mode: run on a login node to fetch the base image
+# -----------------------------------------------------------------------
+if [[ "${1:-}" == "--pull-base" ]]; then
+    BUILD_DIR="${BUILD_DIR:-${SCRATCH:-/scratch4/NCEPDEV/stmp/${USER}}/ufs-container}"
+    BASE_SIF="${BUILD_DIR}/rocky9-intel2025.3-base.sif"
+    mkdir -p "${BUILD_DIR}"
+    echo "Pulling base image to ${BASE_SIF} ..."
+    apptainer pull "${BASE_SIF}" \
+        docker://intel/oneapi-hpckit:2025.3.0-0-devel-rockylinux9
+    echo "Done. Base image: ${BASE_SIF}"
+    echo "Now submit the build job:"
+    echo "  cd $(dirname "${BASH_SOURCE[0]}") && sbatch build_ufs_sif.sh"
+    exit 0
+fi
 
 # -----------------------------------------------------------------------
 # Configuration — edit these if needed, or override via environment:
@@ -39,6 +59,15 @@ echo "================================================================"
 # Verify .def file exists
 if [[ ! -f "${DEF_FILE}" ]]; then
     echo "ERROR: Definition file not found: ${DEF_FILE}"
+    exit 1
+fi
+
+# Verify base SIF exists (must be pulled on login node first)
+BASE_SIF="${BUILD_DIR}/rocky9-intel2025.3-base.sif"
+if [[ ! -f "${BASE_SIF}" ]]; then
+    echo "ERROR: Base image SIF not found: ${BASE_SIF}"
+    echo "       Run this first on a login node:"
+    echo "         bash ${DEF_FILE%/*}/build_ufs_sif.sh --pull-base"
     exit 1
 fi
 

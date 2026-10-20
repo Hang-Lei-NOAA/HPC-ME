@@ -1,5 +1,5 @@
-Bootstrap: docker
-From: intel/oneapi-hpckit:2025.3.0-0-devel-rockylinux9
+Bootstrap: localimage
+From: rocky9-intel2025.3-base.sif
 
 %labels
     maintainer HPC-ME
@@ -19,18 +19,6 @@ From: intel/oneapi-hpckit:2025.3.0-0-devel-rockylinux9
         pkg-config python3 python3-devel readline-devel \
         openssl-devel xz-devel zlib-devel git
     dnf clean all
-
-    # ----------------------------------------------------------------
-    # Intel oneAPI 2025.3.1 C/C++ compilers
-    # (base image 2025.3.0 ships Fortran only)
-    # ----------------------------------------------------------------
-    mkdir -p /tmp/oneapi-install && cd /tmp/oneapi-install
-    wget -q https://registrationcenter-download.intel.com/akdlm/oneapi/components/rpms/intel-oneapi-compiler-c-2025.3.1-19.tar.gz
-    wget -q https://registrationcenter-download.intel.com/akdlm/oneapi/components/rpms/intel-oneapi-compiler-dpcpp-cpp-2025.3.1-19.tar.gz
-    tar -xzf intel-oneapi-compiler-c-2025.3.1-19.tar.gz
-    tar -xzf intel-oneapi-compiler-dpcpp-cpp-2025.3.1-19.tar.gz
-    dnf install -y ./intel-oneapi-compiler-c-*/*.rpm ./intel-oneapi-compiler-dpcpp-cpp-*/*.rpm || true
-    cd / && rm -rf /tmp/oneapi-install
 
     # ----------------------------------------------------------------
     # Spack v1.1.0
