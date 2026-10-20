@@ -20,18 +20,41 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------
-# --pull-base mode: run on a login node to fetch the base image
+# --pull-base mode: submit a short Slurm job to pull + convert the base
+# image on a compute node (login nodes forbid CPU-intensive mksquashfs).
+# Run this from a login node:
+#   bash build_ufs_sif.sh --pull-base
 # -----------------------------------------------------------------------
 if [[ "${1:-}" == "--pull-base" ]]; then
     BUILD_DIR="${BUILD_DIR:-${SCRATCH:-/scratch4/NCEPDEV/stmp/${USER}}/ufs-container}"
-    BASE_SIF="${BUILD_DIR}/rocky9-intel2025.3-base.sif"
     mkdir -p "${BUILD_DIR}"
-    echo "Pulling base image to ${BASE_SIF} ..."
-    apptainer pull "${BASE_SIF}" \
-        docker://intel/oneapi-hpckit:2025.3.0-0-devel-rockylinux9
-    echo "Done. Base image: ${BASE_SIF}"
-    echo "Now submit the build job:"
-    echo "  cd $(dirname "${BASH_SOURCE[0]}") && sbatch build_ufs_sif.sh"
+    PULL_SCRIPT="${BUILD_DIR}/pull_base_image.sh"
+    cat > "${PULL_SCRIPT}" << PULLEOF
+#!/bin/bash
+#SBATCH --job-name=pull-base-sif
+#SBATCH --partition=u1-compute
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --time=00:30:00
+#SBATCH --output=${BUILD_DIR}/pull_base_image_%j.log
+#SBATCH --error=${BUILD_DIR}/pull_base_image_%j.log
+set -euo pipefail
+export APPTAINER_CACHEDIR="${BUILD_DIR}/.apptainer_cache"
+export APPTAINER_TMPDIR="${BUILD_DIR}/.apptainer_tmp"
+mkdir -p "\${APPTAINER_CACHEDIR}" "\${APPTAINER_TMPDIR}"
+echo "Pulling base image..."
+apptainer pull "${BUILD_DIR}/rocky9-intel2025.3-base.sif" \\
+    docker://intel/oneapi-hpckit:2025.3.0-0-devel-rockylinux9
+echo "Done: ${BUILD_DIR}/rocky9-intel2025.3-base.sif"
+PULLEOF
+    chmod +x "${PULL_SCRIPT}"
+    JOB=$(sbatch --parsable "${PULL_SCRIPT}")
+    echo "Submitted pull job: ${JOB}"
+    echo "Monitor: squeue -j ${JOB}"
+    echo "Log:     ${BUILD_DIR}/pull_base_image_${JOB}.log"
+    echo ""
+    echo "Once complete, submit the main build:"
+    echo "  cd ${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} && sbatch build_ufs_sif.sh"
     exit 0
 fi
 
