@@ -35,7 +35,7 @@ if [[ "${1:-}" == "--pull-base" ]]; then
 #SBATCH --partition=u1-compute
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --time=00:30:00
+#SBATCH --time=01:30:00
 #SBATCH --output=${BUILD_DIR}/pull_base_image_%j.log
 #SBATCH --error=${BUILD_DIR}/pull_base_image_%j.log
 set -euo pipefail
