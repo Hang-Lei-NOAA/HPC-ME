@@ -16,12 +16,15 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------
-# Configuration — edit these if needed
+# Configuration — edit these if needed, or override via environment:
+#   DEF_FILE=/path/to/file.def sbatch build_ufs_sif.sh
+#   sbatch --export=ALL,DEF_FILE=/path/to/file.def build_ufs_sif.sh
 # -----------------------------------------------------------------------
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DEF_FILE="${SCRIPT_DIR}/ufs-rockylinux9-intel2025.3.def"
+# SLURM_SUBMIT_DIR is set by Slurm to the directory where sbatch was run
+SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+DEF_FILE="${DEF_FILE:-${SUBMIT_DIR}/ufs-rockylinux9-intel2025.3.def}"
 SIF_NAME="ufs-hpcme-intel2025.sif"
-BUILD_DIR="${SCRATCH:-/scratch4/NCEPDEV/stmp/${USER}}/ufs-container"
+BUILD_DIR="${BUILD_DIR:-${SCRATCH:-/scratch4/NCEPDEV/stmp/${USER}}/ufs-container}"
 # -----------------------------------------------------------------------
 
 echo "================================================================"
