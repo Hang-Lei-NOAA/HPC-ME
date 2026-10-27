@@ -1,0 +1,90 @@
+name: Build UFS SIF (Rocky9 + Intel oneAPI 2025.3)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag for the SIF (e.g. ufs-intel2025.3-v1)"
+        required: true
+        default: "ufs-intel2025.3-v1"
+
+jobs:
+  build-sif:
+    runs-on: ubuntu-latest
+    # Large runner needed: oneAPI base image + Spack build ~60 GB disk, 8+ GB RAM
+    # ubuntu-latest gives 14 GB RAM and ~80 GB disk — sufficient
+    permissions:
+      contents: write   # needed to create releases and upload assets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        # Remove unused tools to recover ~30 GB on the GitHub runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker system prune -af || true
+          df -h
+
+      - name: Install Apptainer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y wget squashfs-tools
+          # Install Apptainer from GitHub release
+          APPTAINER_VER=1.3.4
+          wget -qO /tmp/apptainer.deb \
+            https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VER}/apptainer_${APPTAINER_VER}_amd64.deb
+          sudo dpkg -i /tmp/apptainer.deb
+          apptainer --version
+
+      - name: Prepare resolved .def file
+        run: |
+          # The def file uses BASE_SIF_PATH placeholder; on CI we bootstrap
+          # directly from docker: so substitute the original docker source back.
+          sed 's|Bootstrap: localimage|Bootstrap: docker|; s|From: BASE_SIF_PATH|From: intel/oneapi-hpckit:2025.3.0-0-devel-rockylinux9|' \
+            ufs-rockylinux9-intel2025.3.def > /tmp/ufs-resolved.def
+          head -4 /tmp/ufs-resolved.def
+
+      - name: Build SIF
+        run: |
+          sudo apptainer build \
+            /tmp/ufs-hpcme-intel2025.sif \
+            /tmp/ufs-resolved.def
+          ls -lh /tmp/ufs-hpcme-intel2025.sif
+
+      - name: Verify SIF
+        run: |
+          apptainer exec /tmp/ufs-hpcme-intel2025.sif \
+            bash -c "
+              echo 'icx:    '$(icx   --version 2>&1 | head -1) || true
+              echo 'ifx:    '$(ifx   --version 2>&1 | head -1) || true
+              echo 'mpirun: '$(mpirun --version 2>&1 | head -1) || true
+              echo 'hdf5:   '$(h5dump --version 2>&1 | head -1) || true
+              echo 'nf-config: '$(nf-config --version 2>&1) || true
+            "
+
+      - name: Create GitHub Release and upload SIF
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.event.inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "UFS HPC-ME Intel oneAPI 2025.3 — ${{ github.event.inputs.tag }}" \
+            --notes "UFS Weather Model build environment container.
+
+  - Base OS : Rocky Linux 9
+  - Compiler: Intel oneAPI 2025.3 (icx/icpx/ifx)
+  - MPI     : Intel MPI 2021.13
+  - Libraries: hdf5 1.14.3, netcdf-c 4.9.2, netcdf-fortran 4.6.1,
+               esmf 8.8.0, parallelio 2.6.2, fms 2024.02, mapl 2.53.4,
+               crtm 2.4.0.1, g2 3.5.1, ip 5.1.0, sp 2.5.0, w3emc 2.10.0,
+               gftl-shared 1.9.0, scotch 7.0.4, jasper 2.0.32
+
+  Download on Ursa login node:
+  \`\`\`bash
+  wget https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag }}/ufs-hpcme-intel2025.sif \
+      -O /scratch4/NCEPDEV/stmp/\${USER}/ufs-container/ufs-hpcme-intel2025.sif
+  \`\`\`" \
+            /tmp/ufs-hpcme-intel2025.sif

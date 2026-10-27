@@ -1,0 +1,140 @@
+Bootstrap: localimage
+From: BASE_SIF_PATH
+
+%labels
+    maintainer HPC-ME
+    description UFS Weather Model environment — Rocky Linux 9 + Intel oneAPI 2025.3 + Intel MPI
+
+%post
+    set -e
+
+    # ----------------------------------------------------------------
+    # OS packages
+    # ----------------------------------------------------------------
+    dnf update -y
+    dnf install -y --setopt=install_weak_deps=False \
+        patch xz make file wget \
+        bzip2-devel libcurl-devel libedit-devel libffi-devel \
+        gmp-devel libmpc-devel mpfr-devel ncurses-devel \
+        pkg-config python3 python3-devel readline-devel \
+        openssl-devel xz-devel zlib-devel git
+    dnf clean all
+
+    # ----------------------------------------------------------------
+    # Spack v1.1.0
+    # ----------------------------------------------------------------
+    git clone -c feature.manyObjectsThreshold=false -b v1.1.0 \
+        https://github.com/spack/spack.git /opt/spack
+
+    . /opt/spack/share/spack/setup-env.sh
+
+    # ----------------------------------------------------------------
+    # Spack environment
+    # ----------------------------------------------------------------
+    mkdir -p /opt/spack-environment
+    cd /opt/spack-environment
+    spack env create --dir .
+    spack env activate .
+
+    # Register externals: compiler, MPI, MKL
+    spack external find --all --scope=site \
+        cmake git wget ca-certificates python \
+        ncurses readline zlib bzip2 openssl libedit libffi
+
+    cat >> spack.yaml << 'EOF'
+  packages:
+    intel-oneapi-compilers:
+      externals:
+      - spec: intel-oneapi-compilers@2025.3.0
+        prefix: /opt/intel/oneapi
+        extra_attributes:
+          compilers:
+            fortran: /opt/intel/oneapi/compiler/2025.3/bin/ifx
+            c:       /opt/intel/oneapi/compiler/2025.3/bin/icx
+            cxx:     /opt/intel/oneapi/compiler/2025.3/bin/icpx
+    intel-oneapi-mpi:
+      externals:
+      - spec: intel-oneapi-mpi@2021.13
+        prefix: /opt/intel/oneapi/mpi/2021.13
+        extra_attributes:
+          mpicc:  /opt/intel/oneapi/mpi/2021.13/bin/mpiicx
+          mpicxx: /opt/intel/oneapi/mpi/2021.13/bin/mpiicpx
+          mpif77: /opt/intel/oneapi/mpi/2021.13/bin/mpiifort
+          mpif90: /opt/intel/oneapi/mpi/2021.13/bin/mpiifort
+      buildable: false
+    intel-oneapi-mkl:
+      externals:
+      - spec: intel-oneapi-mkl@2025.3.0
+        prefix: /opt/intel/oneapi
+EOF
+
+    spack compiler find
+    spack compiler add /opt/intel/oneapi/compiler/2025.3
+
+    # ----------------------------------------------------------------
+    # Add all UFS packages
+    # ----------------------------------------------------------------
+    spack add 'bacio@2.4.1       %oneapi@2025.3.0'
+    spack add 'bzip2             %oneapi@2025.3.0'
+    spack add 'jasper@2.0.32     %oneapi@2025.3.0'
+    spack add 'libpng@1.6.37     %oneapi@2025.3.0'
+    spack add 'libyaml           %oneapi@2025.3.0'
+    spack add 'nccmp             %oneapi@2025.3.0'
+    spack add 'sp@2.5.0          %oneapi@2025.3.0'
+    spack add 'zlib              %oneapi@2025.3.0'
+    spack add 'zlib-ng           %oneapi@2025.3.0'
+
+    spack add 'hdf5@1.14.3 +fortran +hl +szip +mpi %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+    spack add 'netcdf-c@4.9.2    +mpi %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+    spack add 'netcdf-fortran@4.6.1   %oneapi@2025.3.0'
+    spack add 'parallel-netcdf        %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+
+    spack add 'crtm@2.4.0.1      %oneapi@2025.3.0'
+    spack add 'g2@3.5.1          %oneapi@2025.3.0'
+    spack add 'g2tmpl@1.13.0     %oneapi@2025.3.0'
+    spack add 'ip@5.1.0          %oneapi@2025.3.0'
+    spack add 'w3emc@2.10.0      %oneapi@2025.3.0'
+    spack add 'w3nco             %oneapi@2025.3.0'
+
+    spack add 'parallelio@2.6.2  %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+    spack add 'esmf@8.8.0        %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+    spack add 'scotch@7.0.4      %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+
+    spack add 'fms@2024.02       %oneapi@2025.3.0 ^intel-oneapi-mpi@2021.13'
+    spack add 'gftl-shared@1.9.0 %oneapi@2025.3.0'
+    spack add 'mapl@2.53.4       %oneapi@2025.3.0 ^esmf@8.8.0 ^intel-oneapi-mpi@2021.13'
+
+    # ----------------------------------------------------------------
+    # Concretize and install
+    # ----------------------------------------------------------------
+    spack concretize -f
+    spack install --fail-fast -j 8
+    spack gc -y
+
+    # Leave a marker so detect_machine.sh can identify this container
+    mkdir -p /opt/ufs-hpcme
+    echo "ufs-hpcme-intel2025.3" > /opt/ufs-hpcme/container_id
+
+    # Clean up Spack source/build caches to reduce image size
+    spack clean -a
+
+%environment
+    # Intel oneAPI
+    source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
+
+    # Spack view
+    export PATH=/opt/spack-environment/.spack-env/view/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/spack-environment/.spack-env/view/lib:/opt/spack-environment/.spack-env/view/lib64:$LD_LIBRARY_PATH
+    export LIBRARY_PATH=/opt/spack-environment/.spack-env/view/lib:/opt/spack-environment/.spack-env/view/lib64:$LIBRARY_PATH
+    export CMAKE_PREFIX_PATH=/opt/spack-environment/.spack-env/view
+
+    # Intel MPI wrappers
+    export CC=mpiicx
+    export CXX=mpiicpx
+    export FC=mpiifort
+    export I_MPI_CC=icx
+    export I_MPI_CXX=icpx
+    export I_MPI_F90=ifx
+
+%runscript
+    exec /bin/bash "$@"
